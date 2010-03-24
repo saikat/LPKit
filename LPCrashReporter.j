@@ -29,6 +29,7 @@
  */
  
 @import <Foundation/CPObject.j>
+@import <AppKit/CPCheckBox.j>
 @import <AppKit/CPAlert.j>
 @import <LPKit/LPURLPostRequest.j>
 @import <LPKit/LPMultiLineTextField.j>
@@ -96,7 +97,7 @@ var sharedErrorLoggerInstance = nil;
     switch(returnCode)
     {
         case 0: // Send report
-                var reportWindow = [[LPCrashReporterReportWindow alloc] initWithContentRect:CGRectMake(0,0,460,309) styleMask:CPTitledWindowMask | CPResizableWindowMask];
+                var reportWindow = [[LPCrashReporterReportWindow alloc] initWithContentRect:CGRectMake(0,0,460,0) styleMask:CPTitledWindowMask | CPResizableWindowMask delegate:_delegate];
                 [CPApp runModalForWindow:reportWindow];
                 break;
         
@@ -128,6 +129,9 @@ var sharedErrorLoggerInstance = nil;
 
 @implementation LPCrashReporterReportWindow : CPWindow
 {
+    id delegate;
+    CPCheckBox detailsOption;
+
     CPTextField informationLabel;
     LPMultiLineTextField informationTextField;
     
@@ -140,10 +144,11 @@ var sharedErrorLoggerInstance = nil;
     CPTextField sendingLabel;
 }
 
-- (void)initWithContentRect:(CGRect)aContentRect styleMask:(id)aStyleMask
+- (void)initWithContentRect:(CGRect)aContentRect styleMask:(id)aStyleMask delegate:(id)aDelegate
 {
     if (self = [super initWithContentRect:aContentRect styleMask:aStyleMask])
     {
+        delegate = aDelegate;
         var contentView = [self contentView],
             applicationName = [[CPBundle mainBundle] objectForInfoDictionaryKey:@"CPBundleName"];
         
@@ -168,12 +173,26 @@ var sharedErrorLoggerInstance = nil;
         
         descriptionTextField = [LPMultiLineTextField textFieldWithStringValue:@"" placeholder:@"" width:0];
         [descriptionTextField setFrame:CGRectMake(CGRectGetMinX([informationTextField frame]), CGRectGetMaxY([descriptionLabel frame]) + 1, CGRectGetWidth([informationTextField frame]), 100)];
-        [descriptionTextField setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
         [contentView addSubview:descriptionTextField];
-        
+
+        var buttonY = 270;
+        if (delegate && [delegate respondsToSelector:@selector(crashReporterShouldHaveDetailsOption)] && [delegate crashReporterShouldHaveDetailsOption])
+        {
+            if ([delegate respondsToSelector:@selector(crashReporterDetailsLabel)])
+                detailsOption = [CPCheckBox checkBoxWithTitle:[delegate crashReporterDetailsLabel]];
+            else
+                detailsOption = [CPCheckBox checkBoxWithTitle:"Share additional details privately so that we can fix this problem faster."];
+            [detailsOption setObjectValue:CPOnState];
+            var textSize = [[detailsOption title] sizeWithFont:[detailsOption currentValueForThemeAttribute:@"font"] inWidth:CGRectGetWidth(aContentRect) - 15];
+            [detailsOption setFrameSize:textSize];
+            [detailsOption setValue:CPLineBreakByWordWrapping forThemeAttribute:@"line-break-mode"];
+            [detailsOption setFrameOrigin:CGPointMake(12, 270)];
+            buttonY = 270 + [detailsOption frame].size.height + 10;
+            [contentView addSubview:detailsOption];
+        }
+	  
         sendButton = [CPButton buttonWithTitle:[CPString stringWithFormat:@"Send to %@", applicationName]];
-        [sendButton setFrameOrigin:CGPointMake(CGRectGetWidth(aContentRect) - CGRectGetWidth([sendButton frame]) - 15, 270)];
-        [sendButton setAutoresizingMask:CPViewMinXMargin | CPViewMinYMargin];
+        [sendButton setFrameOrigin:CGPointMake(CGRectGetWidth(aContentRect) - CGRectGetWidth([sendButton frame]) - 15, buttonY)];
         [sendButton setTarget:self];
         [sendButton setAction:@selector(didClickSendButton:)];
         [contentView addSubview:sendButton];
@@ -186,10 +205,15 @@ var sharedErrorLoggerInstance = nil;
         [cancelButton setAction:@selector(didClickCancelButton:)];
         [contentView addSubview:cancelButton];
         
+        [self setFrameSize:CGSizeMake(CGRectGetWidth([self frame]), CGRectGetMaxY([sendButton frame]) + 40)];
+        [descriptionTextField setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
+        [detailsOption setAutoresizingMask:CPViewMinYMargin];
+        [sendButton setAutoresizingMask:CPViewMinXMargin | CPViewMinYMargin];
+        
         sendingLabel = [CPTextField labelWithTitle:@"Sending Report..."];
         [sendingLabel setFont:[CPFont boldSystemFontOfSize:11]];
         [sendingLabel sizeToFit];
-        [sendingLabel setFrameOrigin:CGPointMake(12, CGRectGetMaxY(aContentRect) - 35)];
+        [sendingLabel setFrameOrigin:CGPointMake(12, CGRectGetMaxY([self frame]) - 35)];
         [sendingLabel setHidden:YES];
         [contentView addSubview:sendingLabel];
     
@@ -219,6 +243,9 @@ var sharedErrorLoggerInstance = nil;
         exception = [[LPCrashReporter sharedErrorLogger] exception],
         content = {'name': [exception name], 'reason': [exception reason],
                    'userAgent': navigator.userAgent, 'description': [descriptionTextField stringValue]};
+ 
+    if (delegate && detailsOption && [detailsOption objectValue] == CPOnState && [delegate respondsToSelector:@selector(detailsForCrashReporter)]) 
+        content['details'] = [delegate detailsForCrashReporter];
 
     [request setContent:content];
     [CPURLConnection connectionWithRequest:request delegate:self];
