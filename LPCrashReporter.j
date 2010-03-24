@@ -65,8 +65,8 @@ var sharedErrorLoggerInstance = nil;
         var alert = [[CPAlert alloc] init];
         [alert setDelegate:self];
         [alert setAlertStyle:CPCriticalAlertStyle];
-        [alert addButtonWithTitle:@"Reload"];
         [alert addButtonWithTitle:@"Report..."];
+        [alert addButtonWithTitle:@"Reload"];
         [alert setMessageText:[CPString stringWithFormat:@"The application %@ crashed unexpectedly. Click Reload to load the application again or click Report to send a report to the developer.",
                                                          [[CPBundle mainBundle] objectForInfoDictionaryKey:@"CPBundleName"]]];
         [alert runModal];
@@ -91,13 +91,13 @@ var sharedErrorLoggerInstance = nil;
 {   
     switch(returnCode)
     {
-        case 0: // Reload application
-                location.reload();
-                break;
-        
-        case 1: // Send report
+        case 0: // Send report
                 var reportWindow = [[LPCrashReporterReportWindow alloc] initWithContentRect:CGRectMake(0,0,460,309) styleMask:CPTitledWindowMask | CPResizableWindowMask];
                 [CPApp runModalForWindow:reportWindow];
+                break;
+        
+        case 1: // Reload application
+                location.reload();
                 break;
     }
 }
@@ -224,7 +224,7 @@ var sharedErrorLoggerInstance = nil;
 {
     // Make the behaviour the same as if you click reload
     // on the initial alert.
-    [[LPCrashReporter sharedErrorLogger] alertDidEnd:nil returnCode:0];
+    [[LPCrashReporter sharedErrorLogger] alertDidEnd:nil returnCode:1];
 }
 
 /*
@@ -237,13 +237,17 @@ var sharedErrorLoggerInstance = nil;
     [self orderOut:nil];
     
     var alert = [[CPAlert alloc] init];
-    [alert setDelegate:[LPCrashReporter sharedErrorLogger]];
+    [alert setDelegate:self];
     [alert setAlertStyle:CPInformationalAlertStyle];
     [alert addButtonWithTitle:@"Thanks!"];
     [alert setMessageText:@"Your report has been sent."];
     [alert runModal];
 }
 
+- (void)alertDidEnd:(CPAlert)anAlert returnCode:(id)returnCode
+{
+    [[LPCrashReporter sharedErrorLogger] alertDidEnd:nil returnCode:1];
+}
 @end
 
 /*
