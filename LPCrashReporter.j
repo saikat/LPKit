@@ -39,6 +39,7 @@ var sharedErrorLoggerInstance = nil;
 @implementation LPCrashReporter : CPObject
 {
     CPException _exception @accessors(property=exception);
+    id _delegate @accessors(property=delegate);    
 }
 
 + (id)sharedErrorLogger
@@ -67,8 +68,8 @@ var sharedErrorLoggerInstance = nil;
         [alert setAlertStyle:CPCriticalAlertStyle];
         [alert addButtonWithTitle:@"Report..."];
         [alert addButtonWithTitle:@"Reload"];
-        [alert setMessageText:[CPString stringWithFormat:@"The application %@ crashed unexpectedly. Click Reload to load the application again or click Report to send a report to the developer.",
-                                                         [[CPBundle mainBundle] objectForInfoDictionaryKey:@"CPBundleName"]]];
+        var appName = [[CPBundle mainBundle] objectForInfoDictionaryKey:@"CPBundleName"];
+        [alert setMessageText:[CPString stringWithFormat:@"%@ has crashed unexpectedly. Click Reload to load the application again or click Report to send a report to the %@ team.", appName, appName]];
         [alert runModal];
     }
     else
@@ -80,6 +81,9 @@ var sharedErrorLoggerInstance = nil;
 
 - (BOOL)shouldInterceptException
 {
+    if (_delegate && [_delegate respondsToSelector:@selector(crashReporterShouldInterceptExceptions)])
+        return [_delegate crashReporterShouldInterceptExceptions];
+
     return YES;
 }
 
