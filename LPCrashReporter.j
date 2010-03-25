@@ -40,7 +40,9 @@ var sharedErrorLoggerInstance = nil;
 @implementation LPCrashReporter : CPObject
 {
     CPException _exception @accessors(property=exception);
-    id _delegate @accessors(property=delegate);    
+    id _delegate @accessors(property=delegate);
+    CPWindow _overlayWindow; 
+    CPWindow reportWindow;
 }
 
 + (id)sharedErrorLogger
@@ -60,18 +62,12 @@ var sharedErrorLoggerInstance = nil;
         
         _exception = anException;
         
-        var overlayWindow = [[LPCrashReporterOverlayWindow alloc] initWithContentRect:CGRectMakeZero() styleMask:CPBorderlessBridgeWindowMask];
+        overlayWindow = [[LPCrashReporterOverlayWindow alloc] initWithContentRect:CGRectMakeZero() styleMask:CPBorderlessBridgeWindowMask];
         [overlayWindow setLevel:CPNormalWindowLevel];
         [overlayWindow makeKeyAndOrderFront:nil];
         
-        var alert = [[CPAlert alloc] init];
-        [alert setDelegate:self];
-        [alert setAlertStyle:CPCriticalAlertStyle];
-        [alert addButtonWithTitle:@"Report..."];
-        [alert addButtonWithTitle:@"Reload"];
-        var appName = [[CPBundle mainBundle] objectForInfoDictionaryKey:@"CPBundleName"];
-        [alert setMessageText:[CPString stringWithFormat:@"%@ has crashed unexpectedly. Click Reload to load the application again or click Report to send a report to the %@ team.", appName, appName]];
-        [alert runModal];
+        reportWindow = [[LPCrashReporterReportWindow alloc] initWithContentRect:CGRectMake(0,0,460,0) styleMask:CPTitledWindowMask | CPResizableWindowMask delegate:_delegate];
+        [CPApp runModalForWindow:reportWindow];
     }
     else
     {
@@ -88,25 +84,13 @@ var sharedErrorLoggerInstance = nil;
     return YES;
 }
 
-/*
-    CPAlert delegate methods:
-*/
-
-- (void)alertDidEnd:(CPAlert)anAlert returnCode:(id)returnCode
-{   
-    switch(returnCode)
-    {
-        case 0: // Send report
-                var reportWindow = [[LPCrashReporterReportWindow alloc] initWithContentRect:CGRectMake(0,0,460,0) styleMask:CPTitledWindowMask | CPResizableWindowMask delegate:_delegate];
-                [CPApp runModalForWindow:reportWindow];
-                break;
-        
-        case 1: // Reload application
-                location.reload();
-                break;
-    }
+- (void)close
+{
+    _exception = nil;
+    [CPApp stopModal];
+    [overlayWindow orderOut:self];
+    [reportWindow orderOut:self];
 }
-
 @end
 
 
@@ -129,9 +113,8 @@ var sharedErrorLoggerInstance = nil;
 
 @implementation LPCrashReporterReportWindow : CPWindow
 {
-    id delegate;
-    CPCheckBox detailsOption;
-
+    CPTextField errorMessage;
+    
     CPTextField informationLabel;
     LPMultiLineTextField informationTextField;
     
@@ -139,7 +122,9 @@ var sharedErrorLoggerInstance = nil;
     LPMultiLineTextField descriptionTextField;
     
     CPButton sendButton;
-    CPButton cancelButton;
+    
+    id delegate;
+    CPCheckBox detailsOption;
     
     CPTextField sendingLabel;
 }
@@ -155,27 +140,37 @@ var sharedErrorLoggerInstance = nil;
         [self setMinSize:aContentRect.size];
         [self setTitle:[CPString stringWithFormat:@"Problem Report for %@", applicationName]];
         
+        var appName = [[CPBundle mainBundle] objectForInfoDictionaryKey:@"CPBundleName"],
+            message = [CPString stringWithFormat:@"%@ has had an unexpected error. %@  will try to keep going after you report this problem, but it may stop functioning properly.  We suggest you save your work and reload the application.", appName, appName];
+        
+        errorMessage = [CPTextField labelWithTitle:message];
+        
+        var size = [message sizeWithFont:[errorMessage currentValueForThemeAttribute:@"font"] inWidth:CGRectGetWidth(aContentRect) - 15];
+        [errorMessage setLineBreakMode:CPLineBreakByWordWrapping];
+        [errorMessage setFrame:CGRectMake(12, 12, size.width, size.height + 10)];
+        [contentView addSubview:errorMessage];
+
         informationLabel = [CPTextField labelWithTitle:@"Problem and system information:"];
-        [informationLabel setFrameOrigin:CGPointMake(12,12)];
+        [informationLabel setFrameOrigin:CGPointMake(12,64)];
         [contentView addSubview:informationLabel];
         
         var informationTextValue = [CPString stringWithFormat:@"User-Agent: %@\n\nException: %@",
                                                               navigator.userAgent, [[LPCrashReporter sharedErrorLogger] exception]];
         informationTextField = [LPMultiLineTextField textFieldWithStringValue:informationTextValue placeholder:@"" width:0];
         [informationTextField setEditable:NO];
-        [informationTextField setFrame:CGRectMake(12, 31, CGRectGetWidth(aContentRect) - 24, 100)];
+        [informationTextField setFrame:CGRectMake(12, 83, CGRectGetWidth(aContentRect) - 24, 100)];
         [informationTextField setAutoresizingMask:CPViewWidthSizable];
         [contentView addSubview:informationTextField];
         
         descriptionLabel = [CPTextField labelWithTitle:@"Please describe what you were doing when the problem happened:"];
-        [descriptionLabel setFrameOrigin:CGPointMake(12,141)];
+        [descriptionLabel setFrameOrigin:CGPointMake(12,189)];
         [contentView addSubview:descriptionLabel];
         
         descriptionTextField = [LPMultiLineTextField textFieldWithStringValue:@"" placeholder:@"" width:0];
         [descriptionTextField setFrame:CGRectMake(CGRectGetMinX([informationTextField frame]), CGRectGetMaxY([descriptionLabel frame]) + 1, CGRectGetWidth([informationTextField frame]), 100)];
         [contentView addSubview:descriptionTextField];
 
-        var buttonY = 270;
+        var buttonY = 318;
         if (delegate && [delegate respondsToSelector:@selector(crashReporterShouldHaveDetailsOption)] && [delegate crashReporterShouldHaveDetailsOption])
         {
             if ([delegate respondsToSelector:@selector(crashReporterDetailsLabel)])
@@ -186,8 +181,8 @@ var sharedErrorLoggerInstance = nil;
             var textSize = [[detailsOption title] sizeWithFont:[detailsOption currentValueForThemeAttribute:@"font"] inWidth:CGRectGetWidth(aContentRect) - 15];
             [detailsOption setFrameSize:textSize];
             [detailsOption setValue:CPLineBreakByWordWrapping forThemeAttribute:@"line-break-mode"];
-            [detailsOption setFrameOrigin:CGPointMake(12, 270)];
-            buttonY = 270 + [detailsOption frame].size.height + 10;
+            [detailsOption setFrameOrigin:CGPointMake(12, 318)];
+            buttonY = 318 + [detailsOption frame].size.height + 10;
             [contentView addSubview:detailsOption];
         }
 	  
@@ -197,13 +192,6 @@ var sharedErrorLoggerInstance = nil;
         [sendButton setAction:@selector(didClickSendButton:)];
         [contentView addSubview:sendButton];
         [self setDefaultButton:sendButton];
-        
-        cancelButton = [CPButton buttonWithTitle:@"Cancel"];
-        [cancelButton setFrameOrigin:CGPointMake(CGRectGetMinX([sendButton frame]) - CGRectGetWidth([cancelButton frame]) - 12, CGRectGetMinY([sendButton frame]))];
-        [cancelButton setAutoresizingMask:CPViewMinXMargin | CPViewMinYMargin];
-        [cancelButton setTarget:self];
-        [cancelButton setAction:@selector(didClickCancelButton:)];
-        [contentView addSubview:cancelButton];
         
         [self setFrameSize:CGSizeMake(CGRectGetWidth([self frame]), CGRectGetMaxY([sendButton frame]) + 40)];
         [descriptionTextField setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
@@ -232,7 +220,6 @@ var sharedErrorLoggerInstance = nil;
     [informationTextField setEnabled:NO];
     [descriptionTextField setEnabled:NO];
     [sendButton setEnabled:NO];
-    [cancelButton setEnabled:NO];
     [informationLabel setAlphaValue:0.5];
     [descriptionLabel setAlphaValue:0.5];
     
@@ -251,33 +238,13 @@ var sharedErrorLoggerInstance = nil;
     [CPURLConnection connectionWithRequest:request delegate:self];
 }
 
-- (void)didClickCancelButton:(id)sender
-{
-    // Make the behaviour the same as if you click reload
-    // on the initial alert.
-    [[LPCrashReporter sharedErrorLogger] alertDidEnd:nil returnCode:1];
-}
-
 /*
     CPURLConnection delegate methods:
 */
 
 - (void)connection:(CPURLConnection)aConnection didReceiveData:(id)aData
 {
-    [CPApp stopModal];
-    [self orderOut:nil];
-    
-    var alert = [[CPAlert alloc] init];
-    [alert setDelegate:self];
-    [alert setAlertStyle:CPInformationalAlertStyle];
-    [alert addButtonWithTitle:@"Thanks!"];
-    [alert setMessageText:@"Your report has been sent."];
-    [alert runModal];
-}
-
-- (void)alertDidEnd:(CPAlert)anAlert returnCode:(id)returnCode
-{
-    [[LPCrashReporter sharedErrorLogger] alertDidEnd:nil returnCode:1];
+    [[LPCrashReporter sharedErrorLogger] close];
 }
 @end
 
