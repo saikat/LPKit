@@ -241,13 +241,13 @@ var sharedErrorLoggerInstance = nil;
     var loggingURL = [CPURL URLWithString:[[CPBundle mainBundle] objectForInfoDictionaryKey:@"LPCrashReporterLoggingURL"] || @"/"],
         request = [LPURLPostRequest requestWithURL:loggingURL],
         exception = [[LPCrashReporter sharedErrorLogger] exception],
-        content = {'name': [exception name], 'reason': [exception reason],
+        content = {'name': [exception name] ? [exception name] : ([exception isKindOfClass:[CPString class]] ? exception : nil), 'reason': [exception reason] ? [exception reason] : nil,
                    'userAgent': navigator.userAgent, 'description': [descriptionTextField stringValue]};
  
     if (delegate && detailsOption && [detailsOption objectValue] == CPOnState && [delegate respondsToSelector:@selector(detailsForCrashReporter)]) 
         content['details'] = [delegate detailsForCrashReporter];
 
-    [request setContent:content];
+    [request setHTTPBody:[CPString JSONFromObject:content]];
     [CPURLConnection connectionWithRequest:request delegate:self];
 }
 
