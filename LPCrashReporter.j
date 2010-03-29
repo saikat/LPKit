@@ -42,7 +42,7 @@ var sharedErrorLoggerInstance = nil;
     CPException _exception @accessors(property=exception);
     id _delegate @accessors(property=delegate);
     CPWindow _overlayWindow; 
-    CPWindow reportWindow;
+    CPWindow _reportWindow;
 }
 
 + (id)sharedErrorLogger
@@ -62,12 +62,17 @@ var sharedErrorLoggerInstance = nil;
         
         _exception = anException;
         
+        if ([_delegate respondsToSelector:@selector(crashReporterShouldBeSilent)] && [_delegate crashReporterShouldBeSilent])
+        {
+            [self sendCrashReport:"" shouldSendDetails:YES];
+            return;
+        }
         overlayWindow = [[LPCrashReporterOverlayWindow alloc] initWithContentRect:CGRectMakeZero() styleMask:CPBorderlessBridgeWindowMask];
         [overlayWindow setLevel:CPNormalWindowLevel];
         [overlayWindow makeKeyAndOrderFront:nil];
         
-        reportWindow = [[LPCrashReporterReportWindow alloc] initWithContentRect:CGRectMake(0,0,460,0) styleMask:CPTitledWindowMask | CPResizableWindowMask delegate:_delegate];
-        [CPApp runModalForWindow:reportWindow];
+        _reportWindow = [[LPCrashReporterReportWindow alloc] initWithContentRect:CGRectMake(0,0,460,0) styleMask:CPTitledWindowMask | CPResizableWindowMask delegate:_delegate];
+        [CPApp runModalForWindow:_reportWindow];
     }
     else
     {
@@ -84,12 +89,30 @@ var sharedErrorLoggerInstance = nil;
     return YES;
 }
 
-- (void)close
+- (void)sendCrashReport:(CPString)userDescription
+    shouldSendDetails:(BOOL)sendDetails
 {
-    _exception = nil;
+    var loggingURL = [CPURL URLWithString:[[CPBundle mainBundle] objectForInfoDictionaryKey:@"LPCrashReporterLoggingURL"] || @"/"],
+        request = [LPURLPostRequest requestWithURL:loggingURL],
+        exception = [[LPCrashReporter sharedErrorLogger] exception],
+        content = {'name': [exception name] ? [exception name] : ([exception isKindOfClass:[CPString class]] ? exception : nil), 'reason': [exception reason] ? [exception reason] : nil,
+                'userAgent': navigator.userAgent, 'description': userDescription};
+
+    if (_delegate && [_delegate respondsToSelector:@selector(detailsForCrashReporter)] && sendDetails) 
+        content['details'] = [_delegate detailsForCrashReporter];
+
+    [request setHTTPBody:[CPString JSONFromObject:content]];
+    [CPURLConnection connectionWithRequest:request delegate:self];
+}
+
+- (void)connection:(CPURLConnection)aConnection didReceiveData:(id)aData
+{
     [CPApp stopModal];
-    [overlayWindow orderOut:self];
-    [reportWindow orderOut:self];
+    if (_overlayWindow) 
+        [_overlayWindow orderOut:self];
+        
+    if (_reportWindow)
+        [_reportWindow orderOut:self];
 }
 @end
 
@@ -224,27 +247,8 @@ var sharedErrorLoggerInstance = nil;
     [descriptionLabel setAlphaValue:0.5];
     
     [sendingLabel setHidden:NO];
-    
-    var loggingURL = [CPURL URLWithString:[[CPBundle mainBundle] objectForInfoDictionaryKey:@"LPCrashReporterLoggingURL"] || @"/"],
-        request = [LPURLPostRequest requestWithURL:loggingURL],
-        exception = [[LPCrashReporter sharedErrorLogger] exception],
-        content = {'name': [exception name] ? [exception name] : ([exception isKindOfClass:[CPString class]] ? exception : nil), 'reason': [exception reason] ? [exception reason] : nil,
-                   'userAgent': navigator.userAgent, 'description': [descriptionTextField stringValue]};
- 
-    if (delegate && detailsOption && [detailsOption objectValue] == CPOnState && [delegate respondsToSelector:@selector(detailsForCrashReporter)]) 
-        content['details'] = [delegate detailsForCrashReporter];
-
-    [request setHTTPBody:[CPString JSONFromObject:content]];
-    [CPURLConnection connectionWithRequest:request delegate:self];
-}
-
-/*
-    CPURLConnection delegate methods:
-*/
-
-- (void)connection:(CPURLConnection)aConnection didReceiveData:(id)aData
-{
-    [[LPCrashReporter sharedErrorLogger] close];
+    [[LPCrashReporter sharedErrorLogger] sendCrashReport:[descriptionTextField stringValue]
+                                       shouldSendDetails:(detailsOption && [detailsOption objectValue] == CPOnState)];
 }
 @end
 
